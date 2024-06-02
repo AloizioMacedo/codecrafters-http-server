@@ -2,8 +2,11 @@
 use anyhow::{anyhow, Result};
 use itertools::Itertools;
 use std::{
+    env,
+    fs::read_to_string,
     io::{Read, Write},
     net::TcpListener,
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug)]
@@ -81,6 +84,14 @@ fn main() -> Result<()> {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
 
+    let args: Vec<String> = env::args().collect();
+
+    let directory = if &args[1] == "--directory" {
+        Some(PathBuf::from(&args[2]))
+    } else {
+        None
+    };
+
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
 
     for stream in listener.incoming() {
@@ -131,6 +142,25 @@ fn main() -> Result<()> {
                     })?;
                 } else if request.target == "/user-agent" {
                     let Ok(response) = user_agent(&request) else {
+                        let response = Response::new(500, "Internal Server Error");
+                        let response: Vec<u8> = response.into();
+
+                        stream.write_all(&response).map_err(|e| {
+                            eprintln!("{e}");
+                            e
+                        })?;
+                        continue;
+                    };
+
+                    let response: Vec<u8> = response.into();
+                    stream.write_all(&response).map_err(|e| {
+                        eprintln!("{e}");
+                        e
+                    })?;
+                } else if request.target.starts_with("/files") {
+                    let directory = directory.as_deref();
+
+                    let Ok(response) = files(&request, directory) else {
                         let response = Response::new(500, "Internal Server Error");
                         let response: Vec<u8> = response.into();
 
@@ -242,4 +272,30 @@ fn user_agent(req: &Request) -> Result<Response> {
             ("Content-Length", user_agent.len().to_string()),
         ])
         .with_body(user_agent.to_string()))
+}
+
+fn files(req: &Request, directory: Option<&Path>) -> Result<Response> {
+    let Some(directory) = directory else {
+        return Err(anyhow!("directory not passed to /files endpoint"));
+    };
+    let (_, _, filename) = req
+        .target
+        .splitn(3, '/')
+        .collect_tuple()
+        .ok_or(anyhow!("invalid usage of /files endpoint"))?;
+
+    let Ok(contents) = read_to_string(directory.join(filename)) else {
+        let response = Response::new(404, "Not Found");
+
+        return Ok(response);
+    };
+
+    let response = Response::new(200, "OK");
+
+    Ok(response
+        .with_headers(vec![
+            ("Content-Type", "application/octet-stream".to_string()),
+            ("Content-Length", contents.len().to_string()),
+        ])
+        .with_body(contents))
 }
