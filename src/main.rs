@@ -211,11 +211,9 @@ fn echo(req: &Request) -> Result<Response> {
 
     println!("Content for echo: {content}");
 
-    let encoding = req
-        .headers
-        .key_values
-        .iter()
-        .find_map(|(k, v)| (k == &"Accept-Encoding" && v == &"gzip").then_some(*v));
+    let encoding = req.headers.key_values.iter().find_map(|(k, v)| {
+        (k == &"Accept-Encoding" && get_encodings(v).contains(&"gzip")).then_some("gzip")
+    });
 
     let response = Response::new(200, "OK");
     if let Some(encoding) = encoding {
@@ -234,6 +232,10 @@ fn echo(req: &Request) -> Result<Response> {
             ])
             .with_body(content.to_string()))
     }
+}
+
+fn get_encodings(v: &str) -> impl Iterator<Item = &str> {
+    v.split(", ")
 }
 
 fn user_agent(req: &Request) -> Result<Response> {
