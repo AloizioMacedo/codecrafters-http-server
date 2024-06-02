@@ -92,7 +92,16 @@ fn main() -> Result<()> {
 
                 let contents = String::from_utf8_lossy(&buf);
                 let contents = contents.trim_end_matches('\0');
-                let request = Request::parse_request(contents);
+                let Ok(request) = Request::parse_request(contents) else {
+                    let response = Response::new(500, "Internal Server Error");
+                    let response: Vec<u8> = response.into();
+
+                    stream.write_all(&response).map_err(|e| {
+                        eprintln!("{e}");
+                        e
+                    })?;
+                    continue;
+                };
 
                 if request.target == "/" {
                     let response = Response::new(200, "OK");
@@ -103,7 +112,17 @@ fn main() -> Result<()> {
                         e
                     })?;
                 } else if request.target.starts_with("/echo") {
-                    let response = echo(&request)?;
+                    let Ok(response) = echo(&request) else {
+                        let response = Response::new(500, "Internal Server Error");
+                        let response: Vec<u8> = response.into();
+
+                        stream.write_all(&response).map_err(|e| {
+                            eprintln!("{e}");
+                            e
+                        })?;
+                        continue;
+                    };
+
                     let response: Vec<u8> = response.into();
 
                     stream.write_all(&response).map_err(|e| {
@@ -132,32 +151,33 @@ fn main() -> Result<()> {
 }
 
 impl<'a> Request<'a> {
-    fn parse_request(req: &str) -> Request<'_> {
-        let (request_line, headers_and_body) =
-            req.split_once("\r\n").expect("request is not well formed.");
+    fn parse_request(req: &str) -> Result<Request<'_>> {
+        let (request_line, headers_and_body) = req
+            .split_once("\r\n")
+            .ok_or(anyhow!("request is not well formed."))?;
 
         let (method, target, _) = request_line
             .splitn(3, ' ')
             .collect_tuple()
-            .expect("request is ill-formed");
+            .ok_or(anyhow!("request is ill-formed"))?;
 
         let (headers, body) = headers_and_body
             .split_once("\r\n\r\n")
-            .expect("request is ill-formed");
+            .ok_or(anyhow!("request is ill-formed"))?;
 
         let key_values = headers
             .split("\r\n")
-            .map(|s| s.split_once(": ").expect("headers are ill-formed"))
-            .collect();
+            .map(|s| s.split_once(": ").ok_or(anyhow!("headers are ill-formed")))
+            .collect::<Result<Vec<_>>>()?;
 
         let headers = Headers { key_values };
 
-        Request {
+        Ok(Request {
             method,
             target,
             headers,
             body,
-        }
+        })
     }
 }
 
