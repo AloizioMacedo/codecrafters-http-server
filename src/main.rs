@@ -211,14 +211,29 @@ fn echo(req: &Request) -> Result<Response> {
 
     println!("Content for echo: {content}");
 
-    let response = Response::new(200, "OK");
+    let encoding = req
+        .headers
+        .key_values
+        .iter()
+        .find_map(|(k, v)| (k == &"Accept-Encoding").then_some(*v));
 
-    Ok(response
-        .with_headers(vec![
-            ("Content-Type", "text/plain".to_string()),
-            ("Content-Length", content.len().to_string()),
-        ])
-        .with_body(content.to_string()))
+    let response = Response::new(200, "OK");
+    if let Some(encoding) = encoding {
+        Ok(response
+            .with_headers(vec![
+                ("Content-Type", "text/plain".to_string()),
+                ("Content-Length", content.len().to_string()),
+                ("Content-Encoding", encoding.to_string()),
+            ])
+            .with_body(content.to_string()))
+    } else {
+        Ok(response
+            .with_headers(vec![
+                ("Content-Type", "text/plain".to_string()),
+                ("Content-Length", content.len().to_string()),
+            ])
+            .with_body(content.to_string()))
+    }
 }
 
 fn user_agent(req: &Request) -> Result<Response> {
