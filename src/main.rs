@@ -17,9 +17,7 @@ struct Request<'a> {
 
 #[derive(Debug)]
 struct Headers<'a> {
-    host: &'a str,
-    user_agent: &'a str,
-    accept: &'a str,
+    key_values: Vec<(&'a str, &'a str)>,
 }
 
 struct Response {
@@ -143,20 +141,16 @@ impl<'a> Request<'a> {
             .collect_tuple()
             .expect("request is ill-formed");
 
-        let (host, user_agent, accept, _, body) = headers_and_body
-            .splitn(5, "\r\n")
-            .collect_tuple()
+        let (headers, body) = headers_and_body
+            .split_once("\r\n\r\n")
             .expect("request is ill-formed");
 
-        let host = &host[6..];
-        let user_agent = &user_agent[12..];
-        let accept = &accept[8..];
+        let key_values = headers
+            .split("\r\n")
+            .map(|s| s.split_once(": ").expect("headers are ill-formed"))
+            .collect();
 
-        let headers = Headers {
-            host,
-            user_agent,
-            accept,
-        };
+        let headers = Headers { key_values };
 
         Request {
             method,
