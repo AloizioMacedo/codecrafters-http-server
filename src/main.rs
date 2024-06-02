@@ -178,6 +178,15 @@ impl<'a> Request<'a> {
             .collect_tuple()
             .ok_or(anyhow!("request is ill-formed"))?;
 
+        if let Some(body) = headers_and_body.strip_prefix("\r\n") {
+            return Ok(Request {
+                method,
+                target,
+                headers: Headers { key_values: vec![] },
+                body,
+            });
+        }
+
         let (headers, body) = headers_and_body
             .split_once("\r\n\r\n")
             .ok_or(anyhow!("request is ill-formed"))?;
