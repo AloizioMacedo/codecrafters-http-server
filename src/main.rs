@@ -1,5 +1,5 @@
 // Uncomment this block to pass the first stage
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use itertools::Itertools;
 use std::{
     io::{Read, Write},
@@ -25,11 +25,51 @@ struct Headers<'a> {
 struct Response {
     code: u16,
     message: &'static str,
+    body: String,
+    headers: HeadersResponse,
+}
+
+#[derive(Debug)]
+struct HeadersResponse {
+    key_values: Vec<(&'static str, String)>,
+}
+
+impl Response {
+    fn new(code: u16, message: &'static str) -> Response {
+        Response {
+            code,
+            message,
+            body: String::new(),
+            headers: HeadersResponse { key_values: vec![] },
+        }
+    }
+
+    fn with_headers(mut self, headers: Vec<(&'static str, String)>) -> Response {
+        self.headers = HeadersResponse {
+            key_values: headers,
+        };
+
+        self
+    }
+
+    fn with_body(mut self, body: String) -> Response {
+        self.body = body;
+
+        self
+    }
 }
 
 impl From<Response> for String {
     fn from(value: Response) -> Self {
-        format!("HTTP/1.1 {} {}\r\n\r\n", value.code, value.message)
+        let status_line = format!("HTTP/1.1 {} {}\r\n", value.code, value.message);
+
+        let headers = value
+            .headers
+            .key_values
+            .iter()
+            .fold(String::new(), |acc, (k, v)| acc + k + ": " + v + "\r\n");
+
+        status_line + &headers + "\r\n" + &value.body
     }
 }
 
@@ -57,10 +97,15 @@ fn main() -> Result<()> {
                 let request = Request::parse_request(contents);
 
                 if request.target == "/" {
-                    let response = Response {
-                        code: 200,
-                        message: "OK",
-                    };
+                    let response = Response::new(200, "OK");
+                    let response: Vec<u8> = response.into();
+
+                    stream.write_all(&response).map_err(|e| {
+                        eprintln!("{e}");
+                        e
+                    })?;
+                } else if request.target.starts_with("/echo") {
+                    let response = echo(&request)?;
                     let response: Vec<u8> = response.into();
 
                     stream.write_all(&response).map_err(|e| {
@@ -68,10 +113,7 @@ fn main() -> Result<()> {
                         e
                     })?;
                 } else {
-                    let response = Response {
-                        code: 404,
-                        message: "Not Found",
-                    };
+                    let response = Response::new(404, "Not Found");
 
                     let response: Vec<u8> = response.into();
                     stream.write_all(&response).map_err(|e| {
@@ -125,14 +167,21 @@ impl<'a> Request<'a> {
     }
 }
 
-fn ok() -> String {
-    String::from("HTTP/1.1 200 OK\r\n\r\n")
-}
+fn echo(req: &Request) -> Result<Response> {
+    let (_, _, content) = req
+        .target
+        .splitn(3, '/')
+        .collect_tuple()
+        .ok_or(anyhow!("invalid usage of /echo endpoint"))?;
 
-fn not_found() -> String {
-    String::from("HTTP/1.1 404 Not Found\r\n\r\n")
-}
+    println!("Content for echo: {content}");
 
-fn echo(req: Request) -> &str {
-    todo!()
+    let response = Response::new(200, "OK");
+
+    Ok(response
+        .with_headers(vec![
+            ("Content-Type", "text/plain".to_string()),
+            ("Content-Length", content.len().to_string()),
+        ])
+        .with_body(content.to_string()))
 }
