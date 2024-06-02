@@ -4,7 +4,7 @@ use itertools::Itertools;
 use rayon::prelude::*;
 use std::{
     env,
-    fs::read_to_string,
+    fs::{self, read_to_string},
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
@@ -172,22 +172,41 @@ fn handle_stream(
                     e
                 })?;
             } else if request.target.starts_with("/files") {
-                let Ok(response) = files(&request, directory) else {
-                    let response = Response::new(500, "Internal Server Error");
-                    let response: Vec<u8> = response.into();
+                if request.method == "GET" {
+                    let Ok(response) = files(&request, directory) else {
+                        let response = Response::new(500, "Internal Server Error");
+                        let response: Vec<u8> = response.into();
 
+                        stream.write_all(&response).map_err(|e| {
+                            eprintln!("{e}");
+                            e
+                        })?;
+                        return Ok(());
+                    };
+
+                    let response: Vec<u8> = response.into();
                     stream.write_all(&response).map_err(|e| {
                         eprintln!("{e}");
                         e
                     })?;
-                    return Ok(());
-                };
+                } else if request.method == "POST" {
+                    let Ok(response) = files_post(&request, directory) else {
+                        let response = Response::new(500, "Internal Server Error");
+                        let response: Vec<u8> = response.into();
 
-                let response: Vec<u8> = response.into();
-                stream.write_all(&response).map_err(|e| {
-                    eprintln!("{e}");
-                    e
-                })?;
+                        stream.write_all(&response).map_err(|e| {
+                            eprintln!("{e}");
+                            e
+                        })?;
+                        return Ok(());
+                    };
+
+                    let response: Vec<u8> = response.into();
+                    stream.write_all(&response).map_err(|e| {
+                        eprintln!("{e}");
+                        e
+                    })?;
+                }
             } else {
                 let response = Response::new(404, "Not Found");
 
@@ -309,4 +328,23 @@ fn files(req: &Request, directory: Option<&Path>) -> Result<Response> {
             ("Content-Length", contents.len().to_string()),
         ])
         .with_body(contents))
+}
+
+fn files_post(req: &Request, directory: Option<&Path>) -> Result<Response> {
+    let Some(directory) = directory else {
+        return Err(anyhow!("directory not passed to /files endpoint"));
+    };
+    let (_, _, filename) = req
+        .target
+        .splitn(3, '/')
+        .collect_tuple()
+        .ok_or(anyhow!("invalid usage of /files endpoint"))?;
+
+    let body = req.body;
+
+    fs::write(directory.join(filename), body)?;
+
+    let response = Response::new(201, "Created");
+
+    Ok(response)
 }
