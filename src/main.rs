@@ -129,6 +129,23 @@ fn main() -> Result<()> {
                         eprintln!("{e}");
                         e
                     })?;
+                } else if request.target == "/user-agent" {
+                    let Ok(response) = user_agent(&request) else {
+                        let response = Response::new(500, "Internal Server Error");
+                        let response: Vec<u8> = response.into();
+
+                        stream.write_all(&response).map_err(|e| {
+                            eprintln!("{e}");
+                            e
+                        })?;
+                        continue;
+                    };
+
+                    let response: Vec<u8> = response.into();
+                    stream.write_all(&response).map_err(|e| {
+                        eprintln!("{e}");
+                        e
+                    })?;
                 } else {
                     let response = Response::new(404, "Not Found");
 
@@ -198,4 +215,22 @@ fn echo(req: &Request) -> Result<Response> {
             ("Content-Length", content.len().to_string()),
         ])
         .with_body(content.to_string()))
+}
+
+fn user_agent(req: &Request) -> Result<Response> {
+    let user_agent = req
+        .headers
+        .key_values
+        .iter()
+        .find_map(|(k, v)| if k == &"User-Agent" { Some(v) } else { None })
+        .ok_or(anyhow!("user-agent not found"))?;
+
+    let response = Response::new(200, "OK");
+
+    Ok(response
+        .with_headers(vec![
+            ("Content-Type", "text/plain".to_string()),
+            ("Content-Length", user_agent.len().to_string()),
+        ])
+        .with_body(user_agent.to_string()))
 }
