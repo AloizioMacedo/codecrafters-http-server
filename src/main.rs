@@ -1,11 +1,12 @@
 // Uncomment this block to pass the first stage
 use anyhow::{anyhow, Result};
 use itertools::Itertools;
+use rayon::prelude::*;
 use std::{
     env,
     fs::read_to_string,
     io::{Read, Write},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
 };
 
@@ -86,24 +87,57 @@ fn main() -> Result<()> {
 
     let args: Vec<String> = env::args().collect();
 
-    let directory = if &args[1] == "--directory" {
+    let directory = if args.len() >= 2 && &args[1] == "--directory" {
         Some(PathBuf::from(&args[2]))
     } else {
         None
     };
 
+    let directory = directory.as_deref();
+
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => {
-                println!("accepted new connection");
-                let mut buf = [0; 1024];
-                _ = stream.read(&mut buf)?;
+    listener.incoming().par_bridge().for_each(|stream| {
+        _ = handle_stream(stream, directory);
+    });
 
-                let contents = String::from_utf8_lossy(&buf);
-                let contents = contents.trim_end_matches('\0');
-                let Ok(request) = Request::parse_request(contents) else {
+    Ok(())
+}
+
+fn handle_stream(
+    stream: Result<TcpStream, std::io::Error>,
+    directory: Option<&Path>,
+) -> Result<()> {
+    match stream {
+        Ok(mut stream) => {
+            println!("accepted new connection");
+            let mut buf = [0; 1024];
+            _ = stream.read(&mut buf)?;
+
+            let contents = String::from_utf8_lossy(&buf);
+            let contents = contents.trim_end_matches('\0');
+            let Ok(request) = Request::parse_request(contents) else {
+                let response = Response::new(500, "Internal Server Error");
+                let response: Vec<u8> = response.into();
+
+                stream.write_all(&response).map_err(|e| {
+                    eprintln!("{e}");
+                    e
+                })?;
+
+                return Ok(());
+            };
+
+            if request.target == "/" {
+                let response = Response::new(200, "OK");
+                let response: Vec<u8> = response.into();
+
+                stream.write_all(&response).map_err(|e| {
+                    eprintln!("{e}");
+                    e
+                })?;
+            } else if request.target.starts_with("/echo") {
+                let Ok(response) = echo(&request) else {
                     let response = Response::new(500, "Internal Server Error");
                     let response: Vec<u8> = response.into();
 
@@ -111,86 +145,63 @@ fn main() -> Result<()> {
                         eprintln!("{e}");
                         e
                     })?;
-                    continue;
+                    return Ok(());
                 };
 
-                if request.target == "/" {
-                    let response = Response::new(200, "OK");
+                let response: Vec<u8> = response.into();
+
+                stream.write_all(&response).map_err(|e| {
+                    eprintln!("{e}");
+                    e
+                })?;
+            } else if request.target == "/user-agent" {
+                let Ok(response) = user_agent(&request) else {
+                    let response = Response::new(500, "Internal Server Error");
                     let response: Vec<u8> = response.into();
 
                     stream.write_all(&response).map_err(|e| {
                         eprintln!("{e}");
                         e
                     })?;
-                } else if request.target.starts_with("/echo") {
-                    let Ok(response) = echo(&request) else {
-                        let response = Response::new(500, "Internal Server Error");
-                        let response: Vec<u8> = response.into();
+                    return Ok(());
+                };
 
-                        stream.write_all(&response).map_err(|e| {
-                            eprintln!("{e}");
-                            e
-                        })?;
-                        continue;
-                    };
-
+                let response: Vec<u8> = response.into();
+                stream.write_all(&response).map_err(|e| {
+                    eprintln!("{e}");
+                    e
+                })?;
+            } else if request.target.starts_with("/files") {
+                let Ok(response) = files(&request, directory) else {
+                    let response = Response::new(500, "Internal Server Error");
                     let response: Vec<u8> = response.into();
 
                     stream.write_all(&response).map_err(|e| {
                         eprintln!("{e}");
                         e
                     })?;
-                } else if request.target == "/user-agent" {
-                    let Ok(response) = user_agent(&request) else {
-                        let response = Response::new(500, "Internal Server Error");
-                        let response: Vec<u8> = response.into();
+                    return Ok(());
+                };
 
-                        stream.write_all(&response).map_err(|e| {
-                            eprintln!("{e}");
-                            e
-                        })?;
-                        continue;
-                    };
+                let response: Vec<u8> = response.into();
+                stream.write_all(&response).map_err(|e| {
+                    eprintln!("{e}");
+                    e
+                })?;
+            } else {
+                let response = Response::new(404, "Not Found");
 
-                    let response: Vec<u8> = response.into();
-                    stream.write_all(&response).map_err(|e| {
-                        eprintln!("{e}");
-                        e
-                    })?;
-                } else if request.target.starts_with("/files") {
-                    let directory = directory.as_deref();
-
-                    let Ok(response) = files(&request, directory) else {
-                        let response = Response::new(500, "Internal Server Error");
-                        let response: Vec<u8> = response.into();
-
-                        stream.write_all(&response).map_err(|e| {
-                            eprintln!("{e}");
-                            e
-                        })?;
-                        continue;
-                    };
-
-                    let response: Vec<u8> = response.into();
-                    stream.write_all(&response).map_err(|e| {
-                        eprintln!("{e}");
-                        e
-                    })?;
-                } else {
-                    let response = Response::new(404, "Not Found");
-
-                    let response: Vec<u8> = response.into();
-                    stream.write_all(&response).map_err(|e| {
-                        eprintln!("{e}");
-                        e
-                    })?;
-                }
-
-                stream.flush()?;
+                let response: Vec<u8> = response.into();
+                stream.write_all(&response).map_err(|e| {
+                    eprintln!("{e}");
+                    e
+                })?;
             }
-            Err(e) => {
-                println!("error: {}", e);
-            }
+
+            stream.flush()?;
+        }
+        Err(e) => {
+            println!("error: {}", e);
         }
     }
 
