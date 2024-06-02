@@ -222,22 +222,21 @@ fn echo(req: &Request) -> Result<Response> {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(content.as_bytes())?;
         let compressed = encoder.finish()?;
-        let compressed = String::from_utf8_lossy(&compressed);
 
         Ok(response
             .with_headers(vec![
                 ("Content-Type", "text/plain".to_string()),
-                ("Content-Length", content.len().to_string()),
+                ("Content-Length", compressed.len().to_string()),
                 ("Content-Encoding", encoding.to_string()),
             ])
-            .with_body(compressed.to_string()))
+            .with_body(compressed))
     } else {
         Ok(response
             .with_headers(vec![
                 ("Content-Type", "text/plain".to_string()),
                 ("Content-Length", content.len().to_string()),
             ])
-            .with_body(content.to_string()))
+            .with_body(content.as_bytes().to_vec()))
     }
 }
 
@@ -260,7 +259,7 @@ fn user_agent(req: &Request) -> Result<Response> {
             ("Content-Type", "text/plain".to_string()),
             ("Content-Length", user_agent.len().to_string()),
         ])
-        .with_body(user_agent.to_string()))
+        .with_body(user_agent.as_bytes().to_vec()))
 }
 
 fn files(req: &Request, directory: Option<&Path>) -> Result<Response> {
@@ -286,7 +285,7 @@ fn files(req: &Request, directory: Option<&Path>) -> Result<Response> {
             ("Content-Type", "application/octet-stream".to_string()),
             ("Content-Length", contents.len().to_string()),
         ])
-        .with_body(contents))
+        .with_body(contents.as_bytes().to_vec()))
 }
 
 fn files_post(req: &Request, directory: Option<&Path>) -> Result<Response> {

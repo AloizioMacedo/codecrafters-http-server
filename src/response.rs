@@ -1,7 +1,7 @@
 pub struct Response {
     pub code: u16,
     pub message: &'static str,
-    pub body: String,
+    pub body: Vec<u8>,
     pub headers: HeadersResponse,
 }
 
@@ -15,7 +15,7 @@ impl Response {
         Response {
             code,
             message,
-            body: String::new(),
+            body: vec![],
             headers: HeadersResponse { key_values: vec![] },
         }
     }
@@ -28,14 +28,14 @@ impl Response {
         self
     }
 
-    pub fn with_body(mut self, body: String) -> Response {
+    pub fn with_body(mut self, body: Vec<u8>) -> Response {
         self.body = body;
 
         self
     }
 }
 
-impl From<Response> for String {
+impl From<Response> for Vec<u8> {
     fn from(value: Response) -> Self {
         let status_line = format!("HTTP/1.1 {} {}\r\n", value.code, value.message);
 
@@ -45,12 +45,11 @@ impl From<Response> for String {
             .iter()
             .fold(String::new(), |acc, (k, v)| acc + k + ": " + v + "\r\n");
 
-        status_line + &headers + "\r\n" + &value.body
-    }
-}
+        let pre_body = status_line + &headers + "\r\n";
 
-impl From<Response> for Vec<u8> {
-    fn from(value: Response) -> Self {
-        String::from(value).as_bytes().to_owned()
+        let mut pre_body = pre_body.as_bytes().to_vec();
+        pre_body.extend(&value.body);
+
+        pre_body
     }
 }
