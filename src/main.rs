@@ -11,7 +11,7 @@ use itertools::Itertools;
 use rayon::prelude::*;
 use std::{
     env,
-    fs::{self, read_to_string},
+    fs::{read_to_string, write},
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
@@ -301,7 +301,7 @@ fn files_post(req: &Request, directory: Option<&Path>) -> Result<Response> {
 
     let body = req.body;
 
-    fs::write(directory.join(filename), body)?;
+    write(directory.join(filename), body)?;
 
     let response = Response::new(201, "Created");
 
