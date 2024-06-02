@@ -1,6 +1,7 @@
 mod request;
 mod response;
 
+use flate2::{write::GzEncoder, Compression};
 use request::{Headers, Request};
 use response::Response;
 
@@ -216,14 +217,20 @@ fn echo(req: &Request) -> Result<Response> {
     });
 
     let response = Response::new(200, "OK");
+
     if let Some(encoding) = encoding {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(content.as_bytes())?;
+        let compressed = encoder.finish()?;
+        let compressed = String::from_utf8_lossy(&compressed);
+
         Ok(response
             .with_headers(vec![
                 ("Content-Type", "text/plain".to_string()),
                 ("Content-Length", content.len().to_string()),
                 ("Content-Encoding", encoding.to_string()),
             ])
-            .with_body(content.to_string()))
+            .with_body(compressed.to_string()))
     } else {
         Ok(response
             .with_headers(vec![
