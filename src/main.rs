@@ -6,6 +6,22 @@ use std::{
     net::TcpListener,
 };
 
+#[derive(Debug)]
+struct Request<'a> {
+    method: &'a str,
+    target: &'a str,
+
+    headers: Headers<'a>,
+    body: &'a str,
+}
+
+#[derive(Debug)]
+struct Headers<'a> {
+    host: &'a str,
+    user_agent: &'a str,
+    accept: &'a str,
+}
+
 fn main() -> Result<()> {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
@@ -20,9 +36,10 @@ fn main() -> Result<()> {
                 _ = stream.read(&mut buf)?;
 
                 let contents = String::from_utf8_lossy(&buf);
-                let (_, path) = extract_full_url(&contents);
+                let contents = contents.trim_end_matches('\0');
+                let request = Request::parse_request(contents);
 
-                if path == "/" {
+                if request.target == "/" {
                     stream.write_all(ok().as_bytes()).map_err(|e| {
                         eprintln!("{e}");
                         e
@@ -43,6 +60,40 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+impl<'a> Request<'a> {
+    fn parse_request(req: &str) -> Request<'_> {
+        let (request_line, headers_and_body) =
+            req.split_once("\r\n").expect("request is not well formed.");
+
+        let (method, target, _) = request_line
+            .splitn(3, ' ')
+            .collect_tuple()
+            .expect("request is ill-formed");
+
+        let (host, user_agent, accept, _, body) = headers_and_body
+            .splitn(5, "\r\n")
+            .collect_tuple()
+            .expect("request is ill-formed");
+
+        let host = &host[6..];
+        let user_agent = &user_agent[12..];
+        let accept = &accept[8..];
+
+        let headers = Headers {
+            host,
+            user_agent,
+            accept,
+        };
+
+        Request {
+            method,
+            target,
+            headers,
+            body,
+        }
+    }
 }
 
 fn ok() -> String {
@@ -70,4 +121,8 @@ fn extract_full_url(request: &str) -> (&str, &str) {
     let host = &host[6..];
 
     (host, path)
+}
+
+fn echo(request: &str) -> &str {
+    todo!()
 }
