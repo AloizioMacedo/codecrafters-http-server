@@ -22,6 +22,23 @@ struct Headers<'a> {
     accept: &'a str,
 }
 
+struct Response {
+    code: u16,
+    message: &'static str,
+}
+
+impl From<Response> for String {
+    fn from(value: Response) -> Self {
+        format!("HTTP/1.1 {} {}\r\n\r\n", value.code, value.message)
+    }
+}
+
+impl From<Response> for Vec<u8> {
+    fn from(value: Response) -> Self {
+        String::from(value).as_bytes().to_owned()
+    }
+}
+
 fn main() -> Result<()> {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
@@ -40,12 +57,24 @@ fn main() -> Result<()> {
                 let request = Request::parse_request(contents);
 
                 if request.target == "/" {
-                    stream.write_all(ok().as_bytes()).map_err(|e| {
+                    let response = Response {
+                        code: 200,
+                        message: "OK",
+                    };
+                    let response: Vec<u8> = response.into();
+
+                    stream.write_all(&response).map_err(|e| {
                         eprintln!("{e}");
                         e
                     })?;
                 } else {
-                    stream.write_all(not_found().as_bytes()).map_err(|e| {
+                    let response = Response {
+                        code: 404,
+                        message: "Not Found",
+                    };
+
+                    let response: Vec<u8> = response.into();
+                    stream.write_all(&response).map_err(|e| {
                         eprintln!("{e}");
                         e
                     })?;
@@ -104,25 +133,6 @@ fn not_found() -> String {
     String::from("HTTP/1.1 404 Not Found\r\n\r\n")
 }
 
-fn extract_full_url(request: &str) -> (&str, &str) {
-    let (request_line, headers) = request
-        .split_once("\r\n")
-        .expect("request is not well formed.");
-
-    let (_, path, _) = request_line
-        .splitn(3, ' ')
-        .collect_tuple()
-        .expect("request is ill-formed");
-
-    let (host, _) = headers
-        .split_once("\r\n")
-        .expect("request is not well formed");
-
-    let host = &host[6..];
-
-    (host, path)
-}
-
-fn echo(request: &str) -> &str {
+fn echo(req: Request) -> &str {
     todo!()
 }
