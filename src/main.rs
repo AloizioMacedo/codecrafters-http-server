@@ -215,7 +215,7 @@ fn echo(req: &Request) -> Result<Response> {
         .headers
         .key_values
         .iter()
-        .find_map(|(k, v)| (k == &"Accept-Encoding").then_some(*v));
+        .find_map(|(k, v)| (k == &"Accept-Encoding" && v == &"gzip").then_some(*v));
 
     let response = Response::new(200, "OK");
     if let Some(encoding) = encoding {
